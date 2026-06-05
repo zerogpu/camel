@@ -12,12 +12,23 @@
 # limitations under the License.
 # ========= Copyright 2023-2026 @ CAMEL-AI.org. All Rights Reserved. =========
 
+import os
+
 from camel.agents import ChatAgent
 from camel.toolkits import FunctionTool, ZeroGPUToolkit
 
+"""
+Example usage of ZeroGPUToolkit.
+
+Before running, set your environment variables:
+
+export ZEROGPU_API_KEY="your-api-key"
+export ZEROGPU_PROJECT_ID="your-project-id"
+"""
+
 toolkit = ZeroGPUToolkit(
-    api_key="your-api-key",
-    project_id="your-project-id",
+    api_key=os.getenv("ZEROGPU_API_KEY"),
+    project_id=os.getenv("ZEROGPU_PROJECT_ID"),
 )
 
 
@@ -26,13 +37,29 @@ toolkit = ZeroGPUToolkit(
 # =========================
 
 print("=== Summarization ===")
-print(toolkit.summarize("AI is transforming industries rapidly."))
+print(toolkit.zerogpu_summarize("AI is transforming industries rapidly."))
+"""
+===============================================================================
+AI is rapidly transforming industries by improving efficiency, enabling
+automation, and unlocking new data-driven insights across sectors.
+===============================================================================
+"""
 
 print("\n=== Classification ===")
-print(toolkit.classify_iab("Latest football match results"))
+print(toolkit.zerogpu_classify_iab("Latest football match results"))
+"""
+===============================================================================
+{"category": "sports"}
+===============================================================================
+"""
 
 print("\n=== PII Redaction ===")
-print(toolkit.redact_pii("Contact John at john@example.com"))
+print(toolkit.zerogpu_redact_pii("Contact John at john@example.com"))
+"""
+===============================================================================
+Contact [PERSON] at [EMAIL]
+===============================================================================
+"""
 
 
 # =========================
@@ -42,8 +69,9 @@ print(toolkit.redact_pii("Contact John at john@example.com"))
 agent = ChatAgent(
     system_message="You are a helpful assistant.",
     tools=[
-        FunctionTool(toolkit.summarize),
-        FunctionTool(toolkit.classify_iab),
+        FunctionTool(toolkit.zerogpu_summarize),
+        FunctionTool(toolkit.zerogpu_classify_iab),
+        FunctionTool(toolkit.zerogpu_redact_pii),
     ],
 )
 
@@ -54,3 +82,9 @@ response = agent.step(
 
 print("\n=== Agent Response ===")
 print(response.msgs[0].content)
+"""
+===============================================================================
+AI is revolutionizing healthcare by enabling faster diagnoses, personalized
+treatments, and improved patient outcomes through advanced data analysis.
+===============================================================================
+"""

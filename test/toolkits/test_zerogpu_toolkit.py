@@ -13,7 +13,6 @@
 # ========= Copyright 2023-2026 @ CAMEL-AI.org. All Rights Reserved. =========
 
 import pytest
-import requests
 
 from camel.toolkits import ZeroGPUToolkit
 
@@ -27,33 +26,6 @@ def toolkit():
     )
 
 
-def mock_success_response(text_output):
-    class MockResponse:
-        status_code = 200
-
-        def json(self):
-            return {"output": [{"content": [{"text": text_output}]}]}
-
-    return MockResponse()
-
-
-def mock_post_success(*args, **kwargs):
-    return mock_success_response('{"key": "value"}')
-
-
-def mock_post_text(*args, **kwargs):
-    return mock_success_response("some plain text response")
-
-
-def mock_post_error(status_code):
-    class MockResponse:
-        def __init__(self):
-            self.status_code = status_code
-            self.text = "error"
-
-    return MockResponse()
-
-
 def test_get_tools(toolkit):
     tools = toolkit.get_tools()
 
@@ -62,17 +34,17 @@ def test_get_tools(toolkit):
     tool_names = {tool.func.__name__ for tool in tools}
 
     expected = {
-        "chat",
-        "chat_thinking",
-        "summarize",
-        "classify_iab",
-        "classify_iab_enriched",
-        "classify_zero_shot",
-        "classify_structured",
-        "extract_entities",
-        "extract_json",
-        "extract_pii",
-        "redact_pii",
+        "zerogpu_chat",
+        "zerogpu_chat_thinking",
+        "zerogpu_summarize",
+        "zerogpu_classify_iab",
+        "zerogpu_classify_iab_enriched",
+        "zerogpu_classify_zero_shot",
+        "zerogpu_classify_structured",
+        "zerogpu_extract_entities",
+        "zerogpu_extract_json",
+        "zerogpu_extract_pii",
+        "zerogpu_redact_pii",
     }
 
     assert tool_names == expected
@@ -83,93 +55,199 @@ def test_invalid_api_key():
         ZeroGPUToolkit(api_key="bad", project_id="test")
 
 
-def test_chat(monkeypatch, toolkit):
-    monkeypatch.setattr(requests, "post", mock_post_text)
-
-    result = toolkit.chat("hello")
-
-    assert isinstance(result, str)
-
-
-def test_summarize(monkeypatch, toolkit):
-    monkeypatch.setattr(requests, "post", mock_post_text)
-
-    result = toolkit.summarize("text")
-
-    assert isinstance(result, str)
-
-
-def test_classify_iab(monkeypatch, toolkit):
-    monkeypatch.setattr(requests, "post", mock_post_success)
-
-    result = toolkit.classify_iab("text")
-
-    assert isinstance(result, dict)
-
-
-def test_classify_zero_shot(monkeypatch, toolkit):
+def test_chat(toolkit, monkeypatch):
     captured = {}
 
-    def mock_post(*args, **kwargs):
-        captured["json"] = kwargs.get("json")
-        return mock_success_response('{"sports": 0.9}')
+    def mock_create_response(**kwargs):
+        captured.update(kwargs)
+        return {"output": [{"content": [{"text": "hello world"}]}]}
 
-    monkeypatch.setattr(requests, "post", mock_post)
-
-    labels = ["sports", "finance"]
-    toolkit.classify_zero_shot("text", labels)
-
-    assert (
-        "categories" in captured["json"] or "instructions" in captured["json"]
+    monkeypatch.setattr(
+        toolkit.client.responses,
+        "create_response",
+        mock_create_response,
     )
 
+    result = toolkit.zerogpu_chat("hello")
 
-def test_extract_pii_categories(monkeypatch, toolkit):
+    assert result == "hello world"
+    assert captured["model"] == "LFM2.5-1.2B-Instruct"
+
+
+def test_chat_with_system(toolkit, monkeypatch):
     captured = {}
 
-    def mock_post(*args, **kwargs):
-        captured["json"] = kwargs.get("json")
-        return mock_success_response('{"entities": []}')
+    def mock_create_response(**kwargs):
+        captured.update(kwargs)
+        return {"output": [{"content": [{"text": "ok"}]}]}
 
-    monkeypatch.setattr(requests, "post", mock_post)
+    monkeypatch.setattr(
+        toolkit.client.responses,
+        "create_response",
+        mock_create_response,
+    )
 
-    toolkit.extract_pii("text", threshold=0.5, categories=["email"])
+    toolkit.zerogpu_chat("hello", system="You are helpful")
 
-    metadata = captured["json"]["metadata"]
+    assert isinstance(captured["input"], list)
+    assert captured["input"][0]["role"] == "system"
+    assert captured["input"][1]["role"] == "user"
 
-    assert "categories" in metadata
-    assert "threshold" in metadata
 
-
-def test_redact_pii(monkeypatch, toolkit):
+def test_summarize(toolkit, monkeypatch):
     captured = {}
 
-    def mock_post(*args, **kwargs):
-        captured["json"] = kwargs.get("json")
-        return mock_success_response('{"redacted_text": "Hello [PERSON]"}')
+    def mock_create_response(**kwargs):
+        captured.update(kwargs)
+        return {"output": [{"content": [{"text": "summary"}]}]}
 
-    monkeypatch.setattr(requests, "post", mock_post)
+    monkeypatch.setattr(
+        toolkit.client.responses,
+        "create_response",
+        mock_create_response,
+    )
 
-    result = toolkit.redact_pii("text")
+    result = toolkit.zerogpu_summarize("text")
 
-    metadata = captured["json"]["metadata"]
+    assert result == "summary"
+    assert captured["model"] == "llama-3.1-8b-instruct-fast"
+
+
+def test_classify_iab(toolkit, monkeypatch):
+    captured = {}
+
+    def mock_create_response(**kwargs):
+        captured.update(kwargs)
+        return {"output": [{"content": [{"text": '{"category": "sports"}'}]}]}
+
+    monkeypatch.setattr(
+        toolkit.client.responses,
+        "create_response",
+        mock_create_response,
+    )
+
+    result = toolkit.zerogpu_classify_iab("text")
+
+    assert result == {"category": "sports"}
+    assert captured["model"] == "zlm-v1-iab-classify-edge"
+    assert captured["input"] == "text"
+
+
+def test_classify_zero_shot(toolkit, monkeypatch):
+    captured = {}
+
+    def mock_create_response(**kwargs):
+        captured.update(kwargs)
+        return {"output": [{"content": [{"text": '{"sports": 0.9}'}]}]}
+
+    monkeypatch.setattr(
+        toolkit.client.responses,
+        "create_response",
+        mock_create_response,
+    )
+
+    toolkit.zerogpu_classify_zero_shot("text", ["sports"])
+
+    assert captured["categories"] == ["sports"]
+
+
+def test_extract_pii_categories(toolkit, monkeypatch):
+    captured = {}
+
+    def mock_create_response(**kwargs):
+        captured.update(kwargs)
+        return {"output": [{"content": [{"text": '{"entities": []}'}]}]}
+
+    monkeypatch.setattr(
+        toolkit.client.responses,
+        "create_response",
+        mock_create_response,
+    )
+
+    toolkit.zerogpu_extract_pii("text", threshold=0.5, categories=["email"])
+
+    metadata = captured["metadata"]
+
+    assert metadata["categories"] == ["email"]
+    assert metadata["threshold"] == 0.5
+
+
+def test_extract_pii_no_threshold(toolkit, monkeypatch):
+    captured = {}
+
+    def mock_create_response(**kwargs):
+        captured.update(kwargs)
+        return {"output": [{"content": [{"text": '{"entities": []}'}]}]}
+
+    monkeypatch.setattr(
+        toolkit.client.responses,
+        "create_response",
+        mock_create_response,
+    )
+
+    toolkit.zerogpu_extract_pii("text")
+
+    metadata = captured["metadata"]
+
+    assert "threshold" not in metadata
+
+
+def test_extract_pii_no_categories(toolkit, monkeypatch):
+    captured = {}
+
+    def mock_create_response(**kwargs):
+        captured.update(kwargs)
+        return {"output": [{"content": [{"text": '{"entities": []}'}]}]}
+
+    monkeypatch.setattr(
+        toolkit.client.responses,
+        "create_response",
+        mock_create_response,
+    )
+
+    toolkit.zerogpu_extract_pii("text")
+
+    metadata = captured["metadata"]
+
+    assert "categories" not in metadata
+
+
+def test_redact_pii(toolkit, monkeypatch):
+    captured = {}
+
+    def mock_create_response(**kwargs):
+        captured.update(kwargs)
+        return {"output": [{"content": [{"text": "Hello [PERSON]"}]}]}
+
+    monkeypatch.setattr(
+        toolkit.client.responses,
+        "create_response",
+        mock_create_response,
+    )
+
+    result = toolkit.zerogpu_redact_pii("text")
+
+    metadata = captured["metadata"]
 
     assert metadata["usecase"] == "redact"
     assert metadata["mask"] == "label"
-    assert isinstance(result, str)
+    assert result == "Hello [PERSON]"
 
 
-def test_error_mapping(monkeypatch, toolkit):
-    def mock_post(*args, **kwargs):
-        return mock_post_error(401)
+def test_error_mapping(toolkit, monkeypatch):
+    def mock_create_response(**kwargs):
+        raise Exception("auth error")
 
-    monkeypatch.setattr(requests, "post", mock_post)
+    monkeypatch.setattr(
+        toolkit.client.responses,
+        "create_response",
+        mock_create_response,
+    )
 
-    # dict-returning tool
-    result_dict = toolkit.classify_iab("text")
+    # dict-returning
+    result_dict = toolkit.zerogpu_classify_iab("text")
     assert "error" in result_dict
 
-    # str-returning tool
-    result_str = toolkit.chat("text")
-    assert isinstance(result_str, str)
+    # str-returning
+    result_str = toolkit.zerogpu_chat("text")
     assert "Error" in result_str
